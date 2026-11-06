@@ -20,7 +20,7 @@ concurrency:
 jobs:
   gpu:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -32,12 +32,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # apt sometimes hangs on runners (man-db trigger, slow mirror): no man-db, bounded and retried.
+          # apt sometimes stalls on the runners' mirror: bounded attempts, then the official mirror.
           sudo rm -f /var/lib/man-db/auto-update
           for i in 1 2 3; do
-            timeout 240 sudo apt-get update -qq -o Acquire::Retries=3 &&
-            timeout 300 sudo apt-get install -y -qq -o Acquire::Retries=3 mesa-vulkan-drivers ${{ matrix.ffmpeg == 'distro' && 'ffmpeg' || '' }} >/dev/null && break
-            [ $i = 3 ] && exit 1; echo "apt attempt $i failed, retrying"
+            timeout 90 sudo apt-get update -qq -o Acquire::Retries=2 &&
+            timeout 150 sudo apt-get install -y -qq -o Acquire::Retries=2 mesa-vulkan-drivers ${{ matrix.ffmpeg == 'distro' && 'ffmpeg' || '' }} >/dev/null && break
+            [ $i = 3 ] && exit 1; echo "apt attempt $i failed, switching to archive.ubuntu.com"
+            sudo sed -i 's#mirror+file:/etc/apt/apt-mirrors.txt#http://archive.ubuntu.com/ubuntu/#' /etc/apt/sources.list.d/ubuntu.sources
           done
           if [ "${{ matrix.ffmpeg }}" != distro ]; then
             pat='^ffmpeg-master-latest-linux64-gpl\.tar\.xz$'

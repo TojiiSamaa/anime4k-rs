@@ -26,7 +26,7 @@ concurrency:
 jobs:
   bench:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15   # one run takes ~5 min
+    timeout-minutes: 20   # one run takes ~5 min, plus apt retries
     steps:
       # Manual runs need write access (GitHub's own check on "Run workflow"); at most one every 5 minutes.
       - name: Cooldown
@@ -45,12 +45,13 @@ jobs:
 
       - name: Tools
         run: |
-          # apt sometimes hangs on runners (man-db trigger, slow mirror): no man-db, bounded and retried.
+          # apt sometimes stalls on the runners' mirror: bounded attempts, then the official mirror.
           sudo rm -f /var/lib/man-db/auto-update
           for i in 1 2 3; do
-            timeout 240 sudo apt-get update -qq -o Acquire::Retries=3 &&
-            timeout 300 sudo apt-get install -y -qq -o Acquire::Retries=3 ffmpeg mesa-vulkan-drivers unzip >/dev/null && break
-            [ $i = 3 ] && exit 1; echo "apt attempt $i failed, retrying"
+            timeout 90 sudo apt-get update -qq -o Acquire::Retries=2 &&
+            timeout 150 sudo apt-get install -y -qq -o Acquire::Retries=2 ffmpeg mesa-vulkan-drivers unzip >/dev/null && break
+            [ $i = 3 ] && exit 1; echo "apt attempt $i failed, switching to archive.ubuntu.com"
+            sudo sed -i 's#mirror+file:/etc/apt/apt-mirrors.txt#http://archive.ubuntu.com/ubuntu/#' /etc/apt/sources.list.d/ubuntu.sources
           done
           rustup toolchain install stable --profile minimal
 
