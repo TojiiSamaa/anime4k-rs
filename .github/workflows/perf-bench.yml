@@ -60,7 +60,7 @@ jobs:
             python3 bench/bench.py --source $s --out result-$s.json --ours "$OURS" --theirs "$THEIRS"
             python3 bench/render.py result-$s.json --md summary-$s.md --svg bench-$s.svg
           done
-          cat summary-clean.md summary-degraded.md > summary.md
+          { cat summary-clean.md; echo; echo; cat summary-degraded.md; } > summary.md
           cat summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
