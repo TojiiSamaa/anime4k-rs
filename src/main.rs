@@ -50,15 +50,33 @@ fn comparer(a: &str, b: &str) {
 }
 
 /// Cartes Vulkan vues par ffmpeg (« N: nom (type) »), dans l'ordre accepté par `--gpu N`.
-fn lister_gpu() {
+fn cartes_gpu() -> Vec<String> {
     let o = Command::new("ffmpeg").args(["-hide_banner", "-v", "verbose", "-init_hw_device", "vulkan=vk", "-f", "lavfi", "-i", "nullsrc=s=16x16", "-frames:v", "1", "-f", "null", "-"])
         .output().unwrap_or_else(|e| quitter(&format!("ffmpeg : {e}")));
     let log = String::from_utf8_lossy(&o.stderr);
-    let cartes: Vec<&str> = log.lines().skip_while(|l| !l.contains("GPU listing:")).skip(1)
-        .map(|l| l.rsplit_once("] ").map_or(l, |(_, t)| t).trim())
-        .take_while(|t| t.split_once(": ").is_some_and(|(n, _)| n.parse::<u32>().is_ok())).collect();
+    log.lines().skip_while(|l| !l.contains("GPU listing:")).skip(1)
+        .map(|l| l.rsplit_once("] ").map_or(l, |(_, t)| t).trim().to_string())
+        .take_while(|t| t.split_once(": ").is_some_and(|(n, _)| n.parse::<u32>().is_ok())).collect()
+}
+
+fn lister_gpu() {
+    let cartes = cartes_gpu();
     if cartes.is_empty() { quitter("aucune carte Vulkan trouvée (pilote Vulkan absent ?)") }
     for c in cartes { println!("{c}") }
+}
+
+/// `--gpu` (numéro ou partie du nom) -> « vendeur:appareil! » pour MESA_VK_DEVICE_SELECT, à partir d'une
+/// ligne « N: nom (type) (0xID) ». Sert quand libplacebo crée lui-même son périphérique (forme 3, issue #5).
+// shortcut: vendeur déduit du nom (NVIDIA/AMD/Intel), deux cartes identiques non distinguées ; passer par le bus PCI si besoin.
+fn selection_mesa(cartes: &[String], gpu: &str) -> Option<String> {
+    // Un numéro ne désigne que l'index (« 2 » est aussi dans « RTX 2080 »), comme vulkan=vk:N dans ffmpeg.
+    let numero = gpu.parse::<u32>().is_ok();
+    let c = cartes.iter().find(|c| c.split_once(": ").is_some_and(|(n, nom)|
+        if numero { n == gpu } else { nom.to_lowercase().contains(&gpu.to_lowercase()) }))?;
+    let id = c.rsplit_once("(0x")?.1.trim_end_matches(')');
+    let nom = c.to_lowercase();
+    let vendeur = if nom.contains("nvidia") { "10de" } else if nom.contains("amd") || nom.contains("radeon") { "1002" } else if nom.contains("intel") { "8086" } else { return None };
+    Some(format!("{vendeur}:{id}!"))
 }
 
 fn main() {
@@ -127,13 +145,23 @@ fn main() {
         // 1. périphérique de ffmpeg + hwupload (~25 % plus rapide, RTX 5080) ;
         // 2. sans hwupload : libplacebo envoie lui-même les images ;
         // 3. sans -init_hw_device : libplacebo crée son propre périphérique Vulkan (seule forme qui marche
-        //    sur certaines machines NVIDIA multi-GPU, issue #5) ; --gpu ne peut alors plus choisir la carte.
+        //    sur certaines machines NVIDIA multi-GPU, issue #5) ; --gpu passe alors par MESA_VK_DEVICE_SELECT
+        //    (couche Mesa device_select, qui filtre aussi les pilotes NVIDIA), sauf si déjà fixée par l'utilisateur.
         let formes = [(true, format!("hwupload,{lp},hwdownload,format={fmt}{fin}")), (true, format!("{lp}{fin}")), (false, format!("{lp}{fin}"))];
         let mut ok = false;
         for (i, (avec_dev, vf)) in formes.iter().enumerate() {
-            if i > 0 { eprintln!("anime4k-rs : nouvel essai, forme {} du graphe libplacebo{}", i + 1,
-                if !avec_dev && gpu.is_some() { " (sans -init_hw_device : --gpu ignoré, libplacebo choisit la carte)" } else { "" }) }
             let mut c = Command::new("ffmpeg");
+            let mesa = match (&gpu, *avec_dev, env::var_os("MESA_VK_DEVICE_SELECT")) {
+                (Some(g), false, None) => selection_mesa(&cartes_gpu(), g),
+                _ => None,
+            };
+            if i > 0 { eprintln!("anime4k-rs : nouvel essai, forme {} du graphe libplacebo{}", i + 1,
+                match (&mesa, !avec_dev && gpu.is_some()) {
+                    (Some(m), _) => format!(" (sans -init_hw_device, carte choisie par MESA_VK_DEVICE_SELECT={m})"),
+                    (None, true) => " (sans -init_hw_device : carte de --gpu introuvable ou MESA_VK_DEVICE_SELECT déjà fixée, libplacebo choisit)".into(),
+                    _ => String::new(),
+                }) }
+            if let Some(m) = &mesa { c.env("MESA_VK_DEVICE_SELECT", m); }
             c.args(["-hide_banner", "-loglevel", "error"]);
             if *avec_dev { c.args(["-init_hw_device", &dev, "-filter_hw_device", "vk"]); }
             c.args(["-i", &entree, "-vf", vf]).args(&limite);
@@ -289,6 +317,19 @@ fn encodage(enc: &str, qualite: Option<&str>, debit: Option<&str>) -> Vec<String
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn selection_carte_mesa() {
+        // Liste réelle de la machine de l'issue #5.
+        let c: Vec<String> = ["0: NVIDIA GeForce RTX 2080 Ti (discrete) (0x1e07)", "1: NVIDIA GeForce RTX 2070 SUPER (discrete) (0x1e84)",
+            "2: Intel(R) Graphics (RPL-S) (integrated) (0xa780)"].map(String::from).into();
+        let s = |g: &str| super::selection_mesa(&c, g);
+        assert_eq!(s("1").as_deref(), Some("10de:1e84!"));
+        assert_eq!(s("2080 ti").as_deref(), Some("10de:1e07!"));
+        assert_eq!(s("2070"), None); // nombre = index, comme vulkan=vk:N
+        assert_eq!(s("2").as_deref(), Some("8086:a780!"));
+        assert_eq!(s("7"), None);
+    }
+
     #[test]
     fn options_encodeur() {
         let j = |v: Vec<String>| v.join(" ");
