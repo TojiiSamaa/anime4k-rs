@@ -56,16 +56,19 @@ jobs:
           OURS: ${{ github.event_name == 'pull_request' && format('origin/{0} HEAD', github.base_ref) || inputs.ours || 'HEAD' }}
           THEIRS: ${{ inputs.theirs || 'v0.2' }}
         run: |
-          python3 bench/bench.py --out result.json --ours "$OURS" --theirs "$THEIRS"
-          python3 bench/render.py result.json --md summary.md --svg bench.svg
+          for s in clean degraded; do
+            python3 bench/bench.py --source $s --out result-$s.json --ours "$OURS" --theirs "$THEIRS"
+            python3 bench/render.py result-$s.json --md summary-$s.md --svg bench-$s.svg
+          done
+          cat summary-clean.md summary-degraded.md > summary.md
           cat summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
           name: bench-${{ github.sha }}
           path: |
-            result.json
-            bench.svg
+            result-*.json
+            bench-*.svg
 
       - name: Comment on PR
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -79,9 +82,12 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          mkdir -p bench/history
-          cp result.json "bench/history/$(date -u +%Y%m%dT%H%M%S)-$(git rev-parse --short HEAD).json"
-          python3 bench/render.py result.json --history bench/history --svg bench/bench.svg --md bench/latest.md
-          git add bench/history bench/bench.svg bench/latest.md
+          id="$(date -u +%Y%m%dT%H%M%S)-$(git rev-parse --short HEAD)"
+          mkdir -p bench/history bench/history-degraded
+          cp result-clean.json "bench/history/$id.json"
+          cp result-degraded.json "bench/history-degraded/$id.json"
+          python3 bench/render.py result-clean.json --history bench/history --svg bench/bench.svg --md bench/latest.md
+          python3 bench/render.py result-degraded.json --history bench/history-degraded --svg bench/bench-degraded.svg --md bench/latest-degraded.md
+          git add bench/history bench/history-degraded bench/bench.svg bench/bench-degraded.svg bench/latest.md bench/latest-degraded.md
           git commit -qm "bench: $(git rev-parse --short HEAD) [skip ci]"
           git pull -q --rebase origin main && git push -q origin HEAD:main

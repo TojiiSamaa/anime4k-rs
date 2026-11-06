@@ -1,6 +1,7 @@
 <p align="center">
   <a href="https://github.com/TojiiSamaa/anime4k-rs/actions/workflows/perf-bench.yml">
     <img src="bench/bench.svg" alt="Benchmark: time per image, quality and reliability, updated by CI on every push" width="900">
+    <img src="bench/bench-degraded.svg" alt="Same benchmark on a blurred, H.264-compressed source" width="900">
   </a>
 </p>
 
@@ -51,6 +52,15 @@ The native output matches the GPU reference at **PSNR 54.5 dB, max error 1.4/255
 | `B+B` | B, plus Restore_CNN_Soft_M before the last upscale |
 | `C+A` | C, plus Restore_CNN_M before the last upscale |
 
+**Pick the preset for the source, it matters more than anything else.** Measured on Pepper&Carrot, 540p → 1080p (PSNR vs the original):
+
+| Source | bicubic | A | C | C + `--taille UL` |
+|---|---|---|---|---|
+| clean (lossless downscale) | 34.42 | 33.72 | 38.61 | **39.08** |
+| blurred + H.264 | 29.37 | **30.84** | 29.98 | 29.98 |
+
+A restores (deblurs, sharpens) before upscaling: on a clean source there is nothing to restore and it loses points; on a compressed source it is the best. The top card benches C on clean sources, the second A on degraded ones.
+
 From the Anime4K guide: A suits most 1080p anime with blur and compression, B suits sources that are only slightly blurry or that ring, and C suits sources that are already sharp (it upscales and denoises only).
 
 ## Usage
@@ -73,6 +83,7 @@ anime4k-rs episode.mkv --moteur libplacebo             # on a machine with a GPU
 |---|---|---|
 | `--preset` | `A` | `A`, `B`, `C`, `A+A`, `B+B`, `C+A` |
 | `--hauteur` | `2160` | output height (width follows) |
+| `--taille` | `VL` | `VL` (official HQ modes) or `UL`: Anime4K's largest networks, about +0.4 dB and ~2× slower |
 | `--sortie` | `<input>.anime4k-<preset>.mkv` | output file |
 | `--moteur` | `natif` | `natif` (CPU) or `libplacebo` (GPU through Vulkan) |
 | `--gpu` | first Vulkan GPU | which graphics card renders: its number, or part of its name (`--gpu 1`, `--gpu "RTX 5080"`). Implies `--moteur libplacebo` |
@@ -112,7 +123,7 @@ With a GPU, use `--moteur libplacebo`. The native engine is for machines without
 `.github/workflows/perf-bench.yml` runs on every push, tag and pull request:
 
 1. It builds and tests the code.
-2. It runs `bench/bench.py` on 1920×1080 crops of [Pepper&Carrot](https://www.peppercarrot.com) (2D illustration by David Revoy, CC BY 4.0). Each image is downscaled 2×, then upscaled back by every implementation and compared with the original. The script measures:
+2. It runs `bench/bench.py` twice (a clean source with preset C, then a blurred + H.264 source with preset A) on 1920×1080 crops of [Pepper&Carrot](https://www.peppercarrot.com) (2D illustration by David Revoy, CC BY 4.0). Each image is downscaled 2×, then upscaled back by every implementation and compared with the original. The script measures:
    - **time per image**;
    - **quality**: PSNR and SSIM against the original frame;
    - **fidelity**: PSNR between our native engine and the original GLSL shaders run by libplacebo;
@@ -120,7 +131,7 @@ With a GPU, use `--moteur libplacebo`. The native engine is for machines without
 3. It compares several versions at once. A pull request benches `main` against the PR head and posts the difference as a comment. A manual run accepts any list of our tags or commits and of [andraantariksa/Anime4K-rs](https://github.com/andraantariksa/Anime4K-rs) refs. That project is the Rust port listed in the Anime4K README, and it implements the older v1 push algorithm rather than the CNN.
 4. On `main`, it adds the result to `bench/history/` and redraws the card at the top of this page.
 
-Run it locally with `python3 bench/bench.py --out result.json --ours "HEAD v0.1.0" --theirs "v0.1 v0.2"`, then `python3 bench/render.py result.json --svg bench.svg`.
+Run it locally with `python3 bench/bench.py --source clean --out result.json --ours "HEAD v0.1.0" --theirs "v0.1 v0.2"`, then `python3 bench/render.py result.json --svg bench.svg`.
 
 ## Live playback
 

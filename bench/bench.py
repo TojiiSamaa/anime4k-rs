@@ -7,7 +7,7 @@ and compared with the original crop (PSNR / SSIM).  Also measured: time per imag
 runs, same hash), success rate and, for our native engine, fidelity to the
 reference path (libplacebo running the original GLSL shaders).
 
-Usage: bench.py --out result.json [--ours "HEAD v0.1.0"] [--theirs "v0.2"] [--frames 3]
+Usage: bench.py --out result.json [--source clean|degraded] [--ours "HEAD v0.1.0"] [--theirs "v0.2"] [--frames 3]
 Stdlib only.  Needs git, cargo, ffmpeg, curl, unzip.
 """
 
@@ -112,7 +112,7 @@ def raw_to_png(raw, png):
     )
 
 
-def frames(n):
+def frames(n, source="clean"):
     CACHE.mkdir(parents=True, exist_ok=True)
     shaders = CACHE / "shaders"
     if not (shaders / "Anime4K_Upscale_CNN_x2_VL.glsl").exists():
@@ -123,7 +123,7 @@ def frames(n):
         src, gt, low = (
             CACHE / f"{name}.jpg",
             CACHE / f"gt-{name}.png",
-            CACHE / f"low-{name}.png",
+            CACHE / f"low-{source}-{name}.png",
         )
         if not low.exists():
             if not src.exists():
@@ -152,6 +152,13 @@ def frames(n):
                 "-y",
                 low,
             )
+            if source == "degraded":
+                # what Anime4K is trained for: slight blur + lossy H.264, decoded back to PNG
+                sh("ffmpeg", "-hide_banner", "-loglevel", "error", "-i", gt, "-vf",
+                   f"scale={GT_W // 2}:{GT_H // 2}:flags=area,gblur=sigma=0.6",
+                   "-c:v", "libx264", "-crf", "28", "-frames:v", "1", "-y", f"{low}.mkv")
+                sh("ffmpeg", "-hide_banner", "-loglevel", "error", "-i", f"{low}.mkv",
+                   "-vf", "format=rgb24", "-y", low)
         out.append((str(low), str(gt)))
     return out, str(shaders)
 
@@ -240,10 +247,19 @@ def main():
         "--theirs", default="v0.2", help="git refs of andraantariksa/Anime4K-rs"
     )
     ap.add_argument("--frames", type=int, default=3)
-    ap.add_argument("--preset", default="A")
+    ap.add_argument(
+        "--source",
+        choices=("clean", "degraded"),
+        default="clean",
+        help="clean = bicubic 2x downscale; degraded = blur + H.264 (real-world anime)",
+    )
+    ap.add_argument(
+        "--preset", help="default: C on clean sources, A on degraded ones (Anime4K guide)"
+    )
     a = ap.parse_args()
+    a.preset = a.preset or ("C" if a.source == "clean" else "A")
     WORK.mkdir(parents=True, exist_ok=True)
-    imgs, shaders = frames(a.frames)
+    imgs, shaders = frames(a.frames, a.source)
     env = dict(os.environ, ANIME4K_SHADERS=shaders)
     res = {
         "date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -257,6 +273,7 @@ def main():
         "input": f"{GT_W // 2}x{GT_H // 2}",
         "output": f"{GT_W}x{GT_H}",
         "preset": a.preset,
+        "source": a.source,
         "entries": [],
     }
     add = res["entries"].append

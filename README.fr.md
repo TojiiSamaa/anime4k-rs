@@ -1,6 +1,7 @@
 <p align="center">
   <a href="https://github.com/TojiiSamaa/anime4k-rs/actions/workflows/perf-bench.yml">
     <img src="bench/bench.svg" alt="Banc : temps par image, qualité et fiabilité, mis à jour par la CI à chaque push" width="900">
+    <img src="bench/bench-degraded.svg" alt="Même banc sur une source floutée et compressée en H.264" width="900">
   </a>
 </p>
 
@@ -51,6 +52,15 @@ La sortie native rejoint la référence GPU à **PSNR 54,5 dB, écart max 1,4/25
 | `B+B` | B, plus Restore_CNN_Soft_M avant le dernier upscale |
 | `C+A` | C, plus Restore_CNN_M avant le dernier upscale |
 
+**Le preset doit suivre la source, c'est ce qui compte le plus.** Mesures sur Pepper&Carrot, de 540p vers 1080p (PSNR face à l'original) :
+
+| Source | bicubique | A | C | C + `--taille UL` |
+|---|---|---|---|---|
+| propre (réduction sans perte) | 34,42 | 33,72 | 38,61 | **39,08** |
+| floutée + H.264 | 29,37 | **30,84** | 29,98 | 29,98 |
+
+A restaure l'image (défloutage, renforcement) avant l'upscale. Sur une source propre il n'y a rien à restaurer et il perd des points ; sur une source compressée c'est le meilleur. La première carte mesure C sur une source propre, la seconde A sur une source dégradée.
+
 D'après le guide d'Anime4K : A convient à la plupart des anime 1080p flous et compressés, B aux sources à peine floues ou qui présentent du ringing, C aux sources déjà nettes (il ne fait qu'upscaler et débruiter).
 
 ## Utilisation
@@ -73,6 +83,7 @@ anime4k-rs episode.mkv --moteur libplacebo             # sur une machine avec GP
 |---|---|---|
 | `--preset` | `A` | `A`, `B`, `C`, `A+A`, `B+B`, `C+A` |
 | `--hauteur` | `2160` | hauteur de sortie (la largeur suit) |
+| `--taille` | `VL` | `VL` (modes HQ officiels) ou `UL` : les plus gros réseaux d'Anime4K, environ +0,4 dB et ~2× plus lents |
 | `--sortie` | `<entrée>.anime4k-<preset>.mkv` | fichier de sortie |
 | `--moteur` | `natif` | `natif` (CPU) ou `libplacebo` (GPU via Vulkan) |
 | `--gpu` | première carte Vulkan | carte graphique qui fait le rendu : son numéro ou une partie de son nom (`--gpu 1`, `--gpu "RTX 5080"`). Implique `--moteur libplacebo` |
@@ -112,7 +123,7 @@ Avec un GPU, prendre `--moteur libplacebo`. Le moteur natif sert aux machines qu
 `.github/workflows/perf-bench.yml` tourne à chaque push, tag et pull request :
 
 1. Il compile et lance les tests.
-2. Il exécute `bench/bench.py` sur des extraits 1920×1080 de [Pepper&Carrot](https://www.peppercarrot.com) (illustration 2D de David Revoy, CC BY 4.0). Chaque image est réduite 2×, puis agrandie à nouveau par chaque implémentation et comparée à l'original. Le script mesure :
+2. Il exécute `bench/bench.py` deux fois (source propre avec le preset C, puis source floutée et compressée en H.264 avec le preset A) sur des extraits 1920×1080 de [Pepper&Carrot](https://www.peppercarrot.com) (illustration 2D de David Revoy, CC BY 4.0). Chaque image est réduite 2×, puis agrandie à nouveau par chaque implémentation et comparée à l'original. Le script mesure :
    - le **temps par image** ;
    - la **qualité** : PSNR et SSIM face à l'image d'origine ;
    - la **fidélité** : PSNR entre notre moteur natif et les shaders GLSL d'origine exécutés par libplacebo ;
@@ -120,7 +131,7 @@ Avec un GPU, prendre `--moteur libplacebo`. Le moteur natif sert aux machines qu
 3. Il compare plusieurs versions d'un coup. Une PR compare `main` à la tête de la PR et poste l'écart en commentaire. Un lancement manuel accepte n'importe quelle liste de nos tags ou commits, et des versions d'[andraantariksa/Anime4K-rs](https://github.com/andraantariksa/Anime4K-rs). Ce projet est le portage Rust cité dans le README d'Anime4K, et il implémente l'ancien algorithme v1 (« push ») plutôt que le CNN.
 4. Sur `main`, il ajoute le résultat à `bench/history/` et redessine la carte en haut de cette page.
 
-En local : `python3 bench/bench.py --out result.json --ours "HEAD v0.1.0" --theirs "v0.1 v0.2"`, puis `python3 bench/render.py result.json --svg bench.svg`.
+En local : `python3 bench/bench.py --source clean --out result.json --ours "HEAD v0.1.0" --theirs "v0.1 v0.2"`, puis `python3 bench/render.py result.json --svg bench.svg`.
 
 ## Lecture en direct
 

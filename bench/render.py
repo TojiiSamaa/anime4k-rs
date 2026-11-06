@@ -37,7 +37,7 @@ def reliability(e):
 
 def markdown(r, base=None):
     out = [
-        f"### Benchmark — {r['input']} → {r['output']}, preset {r['preset']}, {r['frames']} images",
+        f"### Benchmark — { {'clean': 'clean source', 'degraded': 'blurred + H.264 source'}.get(r.get('source'), 'clean source') }, {r['input']} → {r['output']}, preset {r['preset']}, {r['frames']} images",
         f"`{r['machine']['cpu']}` · {r['machine']['threads']} threads · commit `{r['commit']}` · {r['date']}",
         "",
         "| Implementation | Version | ms / image | PSNR vs ground truth | SSIM | Fidelity vs GLSL | Reliability |",
@@ -97,7 +97,7 @@ def svg(r, hist):
 .t{fill:var(--fg)}.m{fill:var(--mut)}.b{font-weight:600}
 </style>""",
         f'<rect width="{W}" height="{H}" rx="12" fill="var(--bg)" stroke="var(--line)"/>',
-        f'<text x="{x_name}" y="40" class="t b" font-size="22">anime4k-rs benchmark</text>',
+        f'<text x="{x_name}" y="40" class="t b" font-size="22">anime4k-rs benchmark · { {"clean": "clean source", "degraded": "blurred + H.264 source"}.get(r.get("source"), "clean source") }</text>',
         f'<text x="{x_name}" y="64" class="m" font-size="13">{escape(r["input"])} → {escape(r["output"])} · preset {escape(r["preset"])} · '
         f"{r['frames']} images · {escape(r['machine']['cpu'])} ({r['machine']['threads']} threads) · {escape(r['date'][:10])} · {escape(r['commit'])}</text>",
     ]
