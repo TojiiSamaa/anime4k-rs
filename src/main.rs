@@ -117,18 +117,37 @@ fn main() {
     if moteur == "libplacebo" {
         let glsl = env::temp_dir().join(format!("anime4k-{}.glsl", std::process::id()));
         std::fs::write(&glsl, sources.join("\n")).unwrap();
-        // hwdownload refuse le float : référence brute via RGBA 16 bits puis conversion.
+        // Brut : RGBA 16 bits puis conversion en float (hwdownload refuse le float).
         let (fmt, fin) = if brut { ("rgba64le", ",format=gbrpf32le") } else { ("yuv420p10le", "") };
-        let vf = format!("hwupload,libplacebo=w={ow}:h={oh}:custom_shader_path='{}':format={fmt},hwdownload,format={fmt}{fin}",
+        let lp = format!("libplacebo=w={ow}:h={oh}:custom_shader_path='{}':format={fmt}",
             // Windows : « C:\… » casse le graphe de filtres (« : » et « \ ») ; ffmpeg accepte les « / » et un « : » échappé entre quotes.
             glsl.display().to_string().replace('\\', "/").replace(':', "\\:"));
-        let mut c = Command::new("ffmpeg");
-        let dev = gpu.as_ref().map_or("vulkan=vk".to_string(), |g| format!("vulkan=vk:{g}"));
-        c.args(["-hide_banner", "-loglevel", "error", "-init_hw_device", &dev, "-filter_hw_device", "vk", "-i", &entree, "-vf", &vf]).args(&limite);
-        if brut { c.args(["-f", "rawvideo", "-y", &sortie]); } else {
-            c.args(["-map", "0:v:0", "-map", "0:a?", "-map", "0:s?", "-map", "0:t?", "-map_chapters", "0"]).args(&enc_args).args(["-y", &sortie]);
+        let dev = format!("vulkan=vk{}", gpu.as_ref().map_or(String::new(), |g| format!(":{g}")));
+        // Formes du graphe, de la plus rapide à la plus tolérante ; la suivante seulement si ffmpeg refuse la précédente.
+        // 1. périphérique de ffmpeg + hwupload (~25 % plus rapide, RTX 5080) ;
+        // 2. sans hwupload : libplacebo envoie lui-même les images ;
+        // 3. sans -init_hw_device : libplacebo crée son propre périphérique Vulkan (seule forme qui marche
+        //    sur certaines machines NVIDIA multi-GPU, issue #5) ; --gpu ne peut alors plus choisir la carte.
+        let formes = [(true, format!("hwupload,{lp},hwdownload,format={fmt}{fin}")), (true, format!("{lp}{fin}")), (false, format!("{lp}{fin}"))];
+        let mut ok = false;
+        for (i, (avec_dev, vf)) in formes.iter().enumerate() {
+            if i > 0 { eprintln!("anime4k-rs : nouvel essai, forme {} du graphe libplacebo{}", i + 1,
+                if !avec_dev && gpu.is_some() { " (sans -init_hw_device : --gpu ignoré, libplacebo choisit la carte)" } else { "" }) }
+            let mut c = Command::new("ffmpeg");
+            c.args(["-hide_banner", "-loglevel", "error"]);
+            if *avec_dev { c.args(["-init_hw_device", &dev, "-filter_hw_device", "vk"]); }
+            c.args(["-i", &entree, "-vf", vf]).args(&limite);
+            if brut { c.args(["-f", "rawvideo", "-y", &sortie]); } else {
+                c.args(["-map", "0:v:0", "-map", "0:a?", "-map", "0:s?", "-map", "0:t?", "-map_chapters", "0"]).args(&enc_args).args(["-y", &sortie]);
+            }
+            let Ok(o) = c.stderr(Stdio::piped()).output() else { break };
+            let err = String::from_utf8_lossy(&o.stderr);
+            eprint!("{err}");
+            ok = o.status.success();
+            // Relance seulement si le graphe n'a pas démarré (pas pour un échec en cours d'encodage).
+            let init = ["filter", "libplacebo", "vulkan", "hwupload", "hwdownload"].iter().any(|m| err.to_lowercase().contains(m));
+            if ok || !init { break }
         }
-        let ok = c.status().map(|s| s.success()).unwrap_or(false);
         let _ = std::fs::remove_file(&glsl);
         if !ok { quitter("échec ffmpeg/libplacebo") }
         return println!("{sortie} ({:.1} s)", t0.elapsed().as_secs_f64());

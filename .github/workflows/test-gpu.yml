@@ -32,8 +32,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq mesa-vulkan-drivers ${{ matrix.ffmpeg == 'distro' && 'ffmpeg' || '' }} >/dev/null
+          # apt sometimes hangs on runners (man-db trigger, slow mirror): no man-db, bounded and retried.
+          sudo rm -f /var/lib/man-db/auto-update
+          for i in 1 2 3; do
+            timeout 240 sudo apt-get update -qq -o Acquire::Retries=3 &&
+            timeout 300 sudo apt-get install -y -qq -o Acquire::Retries=3 mesa-vulkan-drivers ${{ matrix.ffmpeg == 'distro' && 'ffmpeg' || '' }} >/dev/null && break
+            [ $i = 3 ] && exit 1; echo "apt attempt $i failed, retrying"
+          done
           if [ "${{ matrix.ffmpeg }}" != distro ]; then
             pat='^ffmpeg-master-latest-linux64-gpl\.tar\.xz$'
             [ "${{ matrix.ffmpeg }}" = release ] && pat='^ffmpeg-n[0-9.]+-latest-linux64-gpl-[0-9.]+\.tar\.xz$'
@@ -62,10 +67,12 @@ jobs:
       # Raw filter graphs, to tell which part ffmpeg refuses when the engine fails (never fails the job).
       - name: Filter graphs (diagnostic)
         run: |
-          try() { if out=$(ffmpeg -hide_banner -v error "$@" -f lavfi -i testsrc2=s=320x180 -frames:v 2 -f null - 2>&1); then r=ok; else r="FAIL: $(echo "$out" | tail -3 | tr '\n' ' ')"; fi; echo "- \`$*\` → $r" | tee -a "$GITHUB_STEP_SUMMARY"; }
-          try -init_hw_device vulkan=vk -filter_hw_device vk -vf hwupload,libplacebo=w=640:h=360:format=yuv420p10le,hwdownload,format=yuv420p10le
-          try -init_hw_device vulkan=vk:0 -filter_hw_device vk -vf libplacebo=w=640:h=360:format=yuv420p10le
-          try -vf libplacebo=w=640:h=360:format=yuv420p10le
+          # try "<device options>" "<filter graph>"
+          try() { if out=$(ffmpeg -hide_banner -v error $1 -f lavfi -i testsrc2=s=320x180 -vf "$2" -frames:v 2 -f null - 2>&1); then r=ok; else r="FAIL: $(echo "$out" | tail -3 | tr '\n' ' ')"; fi; echo "- \`$1 -vf $2\` → $r" | tee -a "$GITHUB_STEP_SUMMARY"; }
+          try "-init_hw_device vulkan=vk -filter_hw_device vk" hwupload,libplacebo=w=640:h=360:format=yuv420p10le,hwdownload,format=yuv420p10le
+          try "-init_hw_device vulkan=vk:0 -filter_hw_device vk" libplacebo=w=640:h=360:format=yuv420p10le
+          try "" libplacebo=w=640:h=360:format=yuv420p10le
+          try "" libplacebo=w=640:h=360:format=rgba64le,format=gbrpf32le
 
       - name: GPU engine
         env:
@@ -74,7 +81,15 @@ jobs:
           a=target/release/anime4k-rs
           $a --lister-gpu
           check() { n=$(ffprobe -v error -count_frames -select_streams v:0 -show_entries stream=nb_read_frames,width,height -of csv=p=0 "$1"); echo "$1: $n"; [ "$n" = "$2" ] || { echo "::error::$1: expected $2, got $n"; exit 1; }; }
-          $a clip.mkv --moteur libplacebo --preset A --taille S --hauteur 360 --images 3 --sortie out.mkv && check out.mkv 640,360,3
-          $a clip.mkv --gpu 0 --preset C --taille S --hauteur 360 --images 3 --sortie out-gpu0.mkv && check out-gpu0.mkv 640,360,3
+          # (bash -e does not stop on a failure inside `a && b`: one command per line)
+          $a clip.mkv --moteur libplacebo --preset A --taille S --hauteur 360 --images 3 --sortie out.mkv
+          check out.mkv 640,360,3
+          $a clip.mkv --gpu 0 --preset C --taille S --hauteur 360 --images 3 --sortie out-gpu0.mkv
+          check out-gpu0.mkv 640,360,3
+          # Graph refused by ffmpeg (here: no card 7) → the engine retries down to the form without -init_hw_device.
+          $a clip.mkv --gpu 7 --preset C --taille S --hauteur 360 --images 3 --sortie out-repli.mkv 2> repli.log || { cat repli.log; exit 1; }
+          cat repli.log
+          grep -q "forme 3" repli.log
+          check out-repli.mkv 640,360,3
           $a clip.mkv --moteur libplacebo --preset A --taille S --hauteur 360 --images 2 --brut --sortie out.raw
           test "$(stat -c %s out.raw)" = $((640 * 360 * 3 * 4 * 2)) || { echo "::error::raw output has the wrong size"; exit 1; }

@@ -45,8 +45,13 @@ jobs:
 
       - name: Tools
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg mesa-vulkan-drivers unzip >/dev/null
+          # apt sometimes hangs on runners (man-db trigger, slow mirror): no man-db, bounded and retried.
+          sudo rm -f /var/lib/man-db/auto-update
+          for i in 1 2 3; do
+            timeout 240 sudo apt-get update -qq -o Acquire::Retries=3 &&
+            timeout 300 sudo apt-get install -y -qq -o Acquire::Retries=3 ffmpeg mesa-vulkan-drivers unzip >/dev/null && break
+            [ $i = 3 ] && exit 1; echo "apt attempt $i failed, retrying"
+          done
           rustup toolchain install stable --profile minimal
 
       - uses: actions/cache@v4
