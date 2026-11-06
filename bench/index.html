@@ -13,9 +13,15 @@
   h1 { font-size: 22px; margin: 0 0 4px } h2 { font-size: 17px; margin: 32px 0 4px }
   .meta, .note { color: var(--mute); font-size: 13px }
   .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0 }
-  button, .btn { font: inherit; font-size: 14px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--row); color: var(--fg); cursor: pointer; text-decoration: none }
-  button[aria-pressed="true"] { border-color: var(--acc); color: var(--acc) }
-  .btn.run { background: var(--acc); border-color: var(--acc); color: #fff }
+  .seg { display: inline-flex; padding: 4px; gap: 2px; border: 1px solid var(--line); border-radius: 999px; background: var(--row) }
+  .seg button { font: inherit; font-size: 14px; font-weight: 600; padding: 7px 16px; border: 0; border-radius: 999px; background: none; color: var(--mute); cursor: pointer; transition: background .15s, color .15s }
+  .seg button:hover { color: var(--fg) }
+  .seg button[aria-pressed="true"] { background: linear-gradient(135deg, #f76707, #d9480f); color: #fff; box-shadow: 0 2px 8px #d9480f55 }
+  .seg button:focus-visible, .btn:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px }
+  .btn { display: inline-flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; padding: 10px 18px; border-radius: 14px; text-decoration: none; color: #fff;
+         background: linear-gradient(135deg, #2f9e44, #1b6e2f); box-shadow: 0 3px 10px #1b6e2f55, inset 0 1px 0 #ffffff40; transition: transform .15s, box-shadow .15s }
+  .btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px #1b6e2f66, inset 0 1px 0 #ffffff40 }
+  .btn svg { flex: none }
   .wrap { overflow-x: auto } table { border-collapse: collapse; width: 100%; min-width: 720px }
   th, td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap }
   td.n, th.n { text-align: right; font-variant-numeric: tabular-nums }
@@ -29,16 +35,18 @@
 <main>
   <h1>anime4k-rs benchmark</h1>
   <div class="meta">Latest results published by the <code>bench</code> workflow on <code>main</code>. Best value per column in green.</div>
-  <div class="bar" role="group" aria-label="Sort by">
+  <div class="bar">
     <span class="note">Sort by</span>
-    <button data-k="ms">Time</button>
-    <button data-k="psnr">PSNR</button>
-    <button data-k="ssim">SSIM</button>
-    <button data-k="fidelity_psnr">Fidelity</button>
-    <button data-k="rel">Reliability</button>
+    <div class="seg" role="group" aria-label="Sort by">
+      <button data-k="ms">Time</button>
+      <button data-k="psnr">PSNR</button>
+      <button data-k="ssim">SSIM</button>
+      <button data-k="fidelity_psnr">Fidelity</button>
+      <button data-k="rel">Reliability</button>
+    </div>
   </div>
   <div class="bar">
-    <a class="btn run" id="run" href="https://github.com/TojiiSamaa/anime4k-rs/actions/workflows/perf-bench.yml">Re-run the bench ↗</a>
+    <a class="btn" id="run" href="https://github.com/TojiiSamaa/anime4k-rs/actions/workflows/perf-bench.yml"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8.5" fill="none" stroke="#fff" stroke-width="1.8"/><path d="M8 6.2v7.6l6-3.8z" fill="#fff"/></svg>Re-run the bench</a>
     <span class="note" id="cool">Needs a GitHub account with write access to the repo (button “Run workflow”). One manual run every 5 minutes.</span>
   </div>
   <div id="out"><p class="note">Loading…</p></div>

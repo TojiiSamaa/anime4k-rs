@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="64" viewBox="0 0 300 64" role="img" aria-label="Re-run the bench">
+<defs>
+<linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2f9e44"/><stop offset="1" stop-color="#1b6e2f"/></linearGradient>
+<linearGradient id="h" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".28"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/></linearGradient>
+<filter id="o" x="-10%" y="-20%" width="120%" height="160%"><feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#1b6e2f" flood-opacity=".45"/></filter>
+</defs>
+<g filter="url(#o)"><rect x="4" y="3" width="292" height="54" rx="14" fill="url(#g)"/></g>
+<rect x="4" y="3" width="292" height="54" rx="14" fill="url(#h)"/>
+<rect x="4.5" y="3.5" width="291" height="53" rx="13.5" fill="none" stroke="#fff" stroke-opacity=".25"/>
+<rect x="16" y="14" width="32" height="32" rx="9" fill="#fff" fill-opacity=".18"/>
+<g transform="translate(22 20)"><circle cx="10" cy="10" r="8.5" fill="none" stroke="#fff" stroke-width="1.8"/><path d="M8 6.2v7.6l6-3.8z" fill="#fff"/></g>
+<g font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif" fill="#fff">
+<text x="60" y="28" font-size="16" font-weight="700">Re-run the bench</text>
+<text x="60" y="45" font-size="12" fill-opacity=".85">GitHub sign-in · write access</text>
+</g>
+<path d="M270 24l6 6-6 6" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" stroke-opacity=".9"/>
+</svg>

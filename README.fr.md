@@ -5,8 +5,8 @@
   </a>
 </p>
 <p align="center">
-  <a href="https://tojiisamaa.github.io/anime4k-rs/bench/"><img src="https://img.shields.io/badge/R%C3%A9sultats%20(triables)-tri%20PSNR%20%C2%B7%20SSIM%20%C2%B7%20fid%C3%A9lit%C3%A9-0969da?style=for-the-badge" alt="sortable results"></a>
-  <a href="https://github.com/TojiiSamaa/anime4k-rs/actions/workflows/perf-bench.yml"><img src="https://img.shields.io/badge/Relancer%20le%20banc-Run%20workflow-1a7f37?style=for-the-badge&logo=githubactions&logoColor=white" alt="re-run the bench"></a>
+  <a href="https://tojiisamaa.github.io/anime4k-rs/bench/"><img src="bench/btn-resultats.svg" alt="Résultats du banc (triables)" height="64"></a>
+  <a href="https://github.com/TojiiSamaa/anime4k-rs/actions/workflows/perf-bench.yml"><img src="bench/btn-relancer.svg" alt="Relancer le banc" height="64"></a>
 </p>
 
 # anime4k-rs
