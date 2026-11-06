@@ -1,0 +1,80 @@
+name: gpu-engine
+
+# The GPU engine (--moteur libplacebo) against several ffmpeg versions, on Vulkan lavapipe (no GPU on runners).
+# Same command lines as on a real GPU: a new ffmpeg that breaks the filter graph turns this red (issue #5).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1"   # weekly: catches a new ffmpeg release without any commit here
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpu-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gpu:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        ffmpeg: [distro, release, master]   # Ubuntu 24.04 (6.1), latest BtbN release build, BtbN master
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tools
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mesa-vulkan-drivers ${{ matrix.ffmpeg == 'distro' && 'ffmpeg' || '' }} >/dev/null
+          if [ "${{ matrix.ffmpeg }}" != distro ]; then
+            pat='^ffmpeg-master-latest-linux64-gpl\.tar\.xz$'
+            [ "${{ matrix.ffmpeg }}" = release ] && pat='^ffmpeg-n[0-9.]+-latest-linux64-gpl-[0-9.]+\.tar\.xz$'
+            asset=$(gh release view latest -R BtbN/FFmpeg-Builds --json assets --jq '.assets[].name' | grep -E "$pat" | sort -V | tail -1)
+            echo "BtbN asset: $asset"
+            gh release download latest -R BtbN/FFmpeg-Builds -p "$asset" -O ff.tar.xz
+            mkdir ff && tar xf ff.tar.xz -C ff --strip-components=1
+            echo "$PWD/ff/bin" >> "$GITHUB_PATH"
+          fi
+          rustup toolchain install stable --profile minimal
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            bench/.cache/shaders
+            ~/.cargo/registry
+          key: gpu-inputs-v1
+
+      - name: Build
+        run: |
+          ffmpeg -hide_banner -version | head -1 | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 bench/bench.py --out /dev/null --frames 0 --ours "" --theirs ""  # fetches the shaders only
+          cargo build --release
+          ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc2=s=320x180:r=24 -t 1 -c:v libx264 -pix_fmt yuv420p clip.mkv
+
+      # Raw filter graphs, to tell which part ffmpeg refuses when the engine fails (never fails the job).
+      - name: Filter graphs (diagnostic)
+        run: |
+          try() { if out=$(ffmpeg -hide_banner -v error "$@" -f lavfi -i testsrc2=s=320x180 -frames:v 2 -f null - 2>&1); then r=ok; else r="FAIL: $(echo "$out" | tail -3 | tr '\n' ' ')"; fi; echo "- \`$*\` → $r" | tee -a "$GITHUB_STEP_SUMMARY"; }
+          try -init_hw_device vulkan=vk -filter_hw_device vk -vf hwupload,libplacebo=w=640:h=360:format=yuv420p10le,hwdownload,format=yuv420p10le
+          try -init_hw_device vulkan=vk:0 -filter_hw_device vk -vf libplacebo=w=640:h=360:format=yuv420p10le
+          try -vf libplacebo=w=640:h=360:format=yuv420p10le
+
+      - name: GPU engine
+        env:
+          ANIME4K_SHADERS: ${{ github.workspace }}/bench/.cache/shaders
+        run: |
+          a=target/release/anime4k-rs
+          $a --lister-gpu
+          check() { n=$(ffprobe -v error -count_frames -select_streams v:0 -show_entries stream=nb_read_frames,width,height -of csv=p=0 "$1"); echo "$1: $n"; [ "$n" = "$2" ] || { echo "::error::$1: expected $2, got $n"; exit 1; }; }
+          $a clip.mkv --moteur libplacebo --preset A --taille S --hauteur 360 --images 3 --sortie out.mkv && check out.mkv 640,360,3
+          $a clip.mkv --gpu 0 --preset C --taille S --hauteur 360 --images 3 --sortie out-gpu0.mkv && check out-gpu0.mkv 640,360,3
+          $a clip.mkv --moteur libplacebo --preset A --taille S --hauteur 360 --images 2 --brut --sortie out.raw
+          test "$(stat -c %s out.raw)" = $((640 * 360 * 3 * 4 * 2)) || { echo "::error::raw output has the wrong size"; exit 1; }
